@@ -657,8 +657,34 @@
   </div>
 </footer>
 
-<!-- 管理后台按钮 -->
-<div class="admin-bar">
+<!-- 密码设置弹窗（首次访问） -->
+<div id="setupModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:none;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:40px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <div style="font-size:48px;margin-bottom:16px;">🔐</div>
+    <h2 style="font-size:20px;font-weight:600;margin-bottom:8px;">设置管理员密码</h2>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:24px;">首次访问，请设置管理员密码。凭此密码登录后台管理。</p>
+    <input type="password" id="setupPwd" placeholder="输入密码（至少6位）" style="width:100%;padding:12px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;outline:none;margin-bottom:8px;">
+    <input type="password" id="setupPwd2" placeholder="再次输入密码" style="width:100%;padding:12px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;outline:none;margin-bottom:16px;">
+    <div id="setupError" style="color:#ef4444;font-size:13px;margin-bottom:12px;display:none;"></div>
+    <button onclick="doSetup()" style="width:100%;background:#2563eb;color:#fff;border:none;padding:13px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">确认设置</button>
+  </div>
+</div>
+
+<!-- 密码登录弹窗 -->
+<div id="loginModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:40px;max-width:400px;width:90%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <div style="font-size:48px;margin-bottom:16px;">⚙️</div>
+    <h2 style="font-size:20px;font-weight:600;margin-bottom:8px;">管理员登录</h2>
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:24px;">请输入管理员密码进入后台管理</p>
+    <input type="password" id="loginPwd" placeholder="输入密码" style="width:100%;padding:12px 14px;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;outline:none;margin-bottom:16px;" onkeydown="if(event.key==='Enter')doLogin()">
+    <div id="loginError" style="color:#ef4444;font-size:13px;margin-bottom:12px;display:none;"></div>
+    <button onclick="doLogin()" style="width:100%;background:#2563eb;color:#fff;border:none;padding:13px;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;">登录</button>
+  </div>
+</div>
+
+<!-- 管理后台按钮（仅管理员可见） -->
+<div class="admin-bar" id="adminBar" style="display:none;">
+  <button class="admin-btn" id="adminLogout" style="background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.2);color:#ef4444;" title="退出登录">🔓 退出</button>
   <button class="admin-btn" id="adminToggle">⚙️ 管理后台</button>
 </div>
 
@@ -917,6 +943,127 @@ const DEFAULT_DATA = {
 };
 
 // ══════════════════════════════════════════
+// 认证系统
+// ══════════════════════════════════════════
+
+const AUTH_KEY_HASH = 'byzhAdminHash';
+const AUTH_KEY_LOGIN = 'byzhAdminLoggedIn';
+const IMG_KEY = 'byzhImages'; // base64 图片存储
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function hasPassword() {
+  return !!localStorage.getItem(AUTH_KEY_HASH);
+}
+
+function isLoggedIn() {
+  return localStorage.getItem(AUTH_KEY_LOGIN) === '1';
+}
+
+async function doSetup() {
+  const p1 = document.getElementById('setupPwd').value;
+  const p2 = document.getElementById('setupPwd2').value;
+  const err = document.getElementById('setupError');
+  if (p1.length < 6) { err.textContent = '密码至少需要6位'; err.style.display = 'block'; return; }
+  if (p1 !== p2) { err.textContent = '两次输入的密码不一致'; err.style.display = 'block'; return; }
+  const hash = await sha256(p1);
+  localStorage.setItem(AUTH_KEY_HASH, hash);
+  localStorage.setItem(AUTH_KEY_LOGIN, '1');
+  document.getElementById('setupModal').style.display = 'none';
+  enterAdminMode();
+  showToast('管理员密码已设置，已自动登录 ✓');
+}
+
+async function doLogin() {
+  const pwd = document.getElementById('loginPwd').value;
+  const err = document.getElementById('loginError');
+  const hash = await sha256(pwd);
+  if (hash === localStorage.getItem(AUTH_KEY_HASH)) {
+    localStorage.setItem(AUTH_KEY_LOGIN, '1');
+    document.getElementById('loginModal').style.display = 'none';
+    document.getElementById('loginPwd').value = '';
+    err.style.display = 'none';
+    enterAdminMode();
+    showToast('登录成功 ✓');
+  } else {
+    err.textContent = '密码错误，请重试';
+    err.style.display = 'block';
+  }
+}
+
+function doLogout() {
+  localStorage.setItem(AUTH_KEY_LOGIN, '0');
+  document.getElementById('adminBar').style.display = 'none';
+  document.getElementById('admin-panel').classList.remove('open');
+  document.getElementById('adminOverlay').classList.remove('show');
+  showToast('已退出登录');
+}
+
+function enterAdminMode() {
+  document.getElementById('adminBar').style.display = 'flex';
+}
+
+// 图片管理（localStorage base64）
+// ══════════════════════════════════════════
+
+function getImages() {
+  try { return JSON.parse(localStorage.getItem(IMG_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveImages(imgs) { localStorage.setItem(IMG_KEY, JSON.stringify(imgs)); }
+
+function uploadImage(file, targetId, callback) {
+  if (!file.type.startsWith('image/')) { showToast('请选择图片文件'); return; }
+  if (file.size > 2 * 1024 * 1024) { showToast('图片不能超过2MB'); return; }
+  const reader = new FileReader();
+  reader.onload = e => {
+    const imgs = getImages();
+    const key = 'img_' + Date.now();
+    imgs[key] = e.target.result;
+    saveImages(imgs);
+    callback(key, e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function deleteImage(key) {
+  const imgs = getImages();
+  delete imgs[key];
+  saveImages(imgs);
+}
+
+function handleProdImgUpload(input, index) {
+  const file = input.files[0];
+  if (!file) return;
+  uploadImage(file, 'prodImgPreview' + index, (key, dataUrl) => {
+    document.getElementById('prodImgPreview' + index).src = dataUrl;
+    document.getElementById('prodImgPreview' + index).style.display = 'block';
+    // 记录到产品数据
+    const d = getData();
+    d.products.cards[index].imgKey = key;
+    saveData(d);
+    showToast('图片已上传 ✓');
+  });
+}
+
+function removeProdImg(index) {
+  const d = getData();
+  const key = d.products.cards[index].imgKey;
+  if (key) deleteImage(key);
+  d.products.cards[index].imgKey = null;
+  saveData(d);
+  document.getElementById('prodImgPreview' + index).style.display = 'none';
+  document.getElementById('prodImgPreview' + index).src = '';
+  renderProducts(d.products);
+  initAdminForms();
+  showToast('图片已移除');
+}
+
+// ══════════════════════════════════════════
 // 存取
 // ══════════════════════════════════════════
 
@@ -1003,10 +1150,16 @@ function renderAbout(a) {
 function renderProducts(p) {
   document.getElementById('productsTitle').textContent = p.title;
   document.getElementById('productsDesc').textContent = p.desc;
+  const imgs = getImages();
 
-  document.getElementById('productsGrid').innerHTML = p.cards.map((c, i) => `
+  document.getElementById('productsGrid').innerHTML = p.cards.map((c, i) => {
+    const hasImg = c.imgKey && imgs[c.imgKey];
+    const imgTag = hasImg
+      ? `<img src="${imgs[c.imgKey]}" style="width:100%;height:100%;object-fit:cover;" alt="${c.name}">`
+      : `<div style="font-size:64px;">${c.icon}</div>`;
+    return `
     <div class="product-card fade-up" style="transition-delay:${i*0.1}s">
-      <div class="product-img" style="background:${c.bgGrad}">${c.icon}</div>
+      <div class="product-img" style="background:${hasImg ? 'transparent' : c.bgGrad}">${imgTag}</div>
       <div class="product-body">
         <div class="product-tag">${c.tag}</div>
         <h3 class="product-name">${c.name}</h3>
@@ -1014,7 +1167,7 @@ function renderProducts(p) {
         <ul class="product-list">${c.list.map(l => `<li>${l}</li>`).join('')}</ul>
       </div>
     </div>
-  `).join('');
+  `}).join('');
 
   const obs = new IntersectionObserver(entries => {
     entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
@@ -1155,7 +1308,16 @@ function initAdminForms() {
     <div class="prod-card-admin">
       <h4>产品 ${i+1}</h4>
       <div class="adm-field">
-        <label class="adm-label">图标（表情）</label>
+        <label class="adm-label">产品图片（上传后将替换图标）</label>
+        <div class="img-upload-area" onclick="document.getElementById('prodImgInput${i}').click()">
+          <input type="file" id="prodImgInput${i}" accept="image/*" onchange="handleProdImgUpload(this, ${i})">
+          <div class="img-upload-label">点击上传图片（建议 400×200）</div>
+          <img id="prodImgPreview${i}" class="img-preview" style="${c.imgKey && getImages()[c.imgKey] ? '' : 'display:none'}" src="${c.imgKey && getImages()[c.imgKey] || ''}">
+        </div>
+        ${c.imgKey ? '<button class="btn-del-adm" onclick="removeProdImg(' + i + ')" style="margin-top:6px;">🗑 移除图片</button>' : ''}
+      </div>
+      <div class="adm-field">
+        <label class="adm-label">备用图标（无图片时显示，表情）</label>
         <input class="adm-input" id="adm_prodIcon${i}" value="${c.icon}">
       </div>
       <div class="adm-field">
@@ -1396,10 +1558,18 @@ window.addEventListener('scroll', () => {
 // 管理面板开关
 // ══════════════════════════════════════════
 document.getElementById('adminToggle').onclick = () => {
+  if (!isLoggedIn()) {
+    document.getElementById('loginModal').style.display = 'flex';
+    document.getElementById('loginPwd').focus();
+    return;
+  }
   document.getElementById('admin-panel').classList.add('open');
   document.getElementById('adminOverlay').classList.add('show');
   initAdminForms();
 };
+
+document.getElementById('adminLogout').onclick = doLogout;
+
 document.getElementById('adminClose').onclick = () => {
   document.getElementById('admin-panel').classList.remove('open');
   document.getElementById('adminOverlay').classList.remove('show');
@@ -1433,7 +1603,17 @@ document.getElementById('contactForm').onsubmit = function(e) {
 // ══════════════════════════════════════════
 // 启动
 // ══════════════════════════════════════════
-renderAll();
+(function init() {
+  if (!hasPassword()) {
+    // 首次访问，显示密码设置
+    document.getElementById('setupModal').style.display = 'flex';
+  } else if (isLoggedIn()) {
+    // 已登录，显示管理按钮
+    enterAdminMode();
+  }
+  // 游客模式：admin-bar 保持隐藏
+  renderAll();
+})();
 </script>
 
 </body>
